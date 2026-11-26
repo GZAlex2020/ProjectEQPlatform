@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>功能自测 · 项目估算与报价台</title>
+<style>
+  body{font-family:Consolas,Monaco,"Microsoft YaHei",monospace;background:#0f172a;color:#e2e8f0;padding:24px;line-height:1.8}
+  h1{font-size:18px;color:#7dd3fc;margin-bottom:6px}
+  p{font-size:12px;color:#94a3b8;margin-bottom:16px}
+  pre{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:18px;white-space:pre-wrap;font-size:13px}
+  iframe{width:1200px;height:700px;border:1px solid #334155;border-radius:10px;margin-top:18px;background:#fff}
+  .pass{color:#4ade80}.fail{color:#f87171}
+</style>
+</head>
+<body>
+<h1>项目估算与报价台 · 自动化功能自测</h1>
+<p>本页会在同源 iframe 中加载主应用，自动执行填表、估算、保存、历史回读等检查。部署到 GitHub Pages 后可直接访问本页确认功能正常。</p>
+<pre id="out">RUNNING...</pre>
+<iframe id="frame" src="./index.html" title="被测应用"></iframe>
+
+<script>
+(function () {
+  var out = document.getElementById('out');
+  var logs = [];
+  var pass = 0, fail = 0;
+  function log(name, ok, extra) {
+    if (ok) pass++; else fail++;
+    logs.push((ok ? '[PASS] ' : '[FAIL] ') + name + (extra ? '  ->  ' + extra : ''));
+  }
+  function finish() {
+    out.textContent = logs.join('\n') + '\n\n合计: ' + pass + ' 通过 / ' + fail + ' 失败' +
+      (fail === 0 ? '\nRESULT: ALL_PASSED' : '\nRESULT: HAS_FAILURE');
+    out.setAttribute('data-done', '1');
+  }
+
+  document.getElementById('frame').addEventListener('load', function () {
+    var f = document.getElementById('frame');
+    var w, d;
+    try { w = f.contentWindow; d = f.contentDocument; }
+    catch (e) { log('iframe 同源访问', false, e.message); finish(); return; }
+
+    try {
+      log('主页面与脚本加载', !!d.querySelector('#btnEstimate'));
+      log('初始化下拉与功能行', d.querySelectorAll('.feature-row').length >= 1);
+
+      // 填写需求表单
+      d.querySelector('#f-title').value = '企业数据看板项目';
+      d.querySelector('#f-desc').value = '需要搭建企业内部数据看板，包含用户登录、微信支付订购、报表导出与角色权限管理，希望使用 Vue 技术栈，三个月内上线。';
+      d.querySelector('#f-type').value = 'data_dashboard';
+      d.querySelector('#f-region').value = 'tier2';
+      d.querySelector('#f-timeline').value = '3';
+      var rows = d.querySelectorAll('.feature-row');
+      rows[0].querySelector('.f-name').value = '用户注册/登录';
+      rows[0].querySelector('.f-complexity').value = 'normal';
+      d.querySelector('#btnAddFeature').click();
+      var rows2 = d.querySelectorAll('.feature-row');
+      rows2[1].querySelector('.f-name').value = '数据看板/报表';
+      rows2[1].querySelector('.f-complexity').value = 'complex';
+      log('动态添加功能项', rows2.length === 2);
+
+      // 触发估算并保存
+      d.querySelector('#btnEstimate').click();
+      var area = d.querySelector('#resultArea');
+      log('结果区渲染完成', !!area.querySelector('.metric-grid'));
+      log('输出 3 套技术方案', area.querySelectorAll('.stack-card').length === 3);
+      log('工时明细表存在', area.querySelectorAll('tbody tr').length >= 4);
+      log('费用区间已展示', /¥[\d,]+\.\d\d/.test(area.textContent));
+      log('估算依据可展开', area.querySelectorAll('details').length >= 3);
+
+      // 校验本地保存
+      var raw = w.localStorage.getItem('est_platform_records_v1');
+      var items = raw ? JSON.parse(raw) : [];
+      log('项目与报价已保存 localStorage', items.length === 1);
+      var rec = items[0];
+      log('保存字段完整（需求/结果/费率快照）',
+        !!(rec && rec.requirement && rec.result && rec.result.cost && rec.result.recommendations && rec.result.cost.rateSnapshot));
+      log('费用区间数值有效', rec && rec.result.cost.totalLow > 0 && rec.result.cost.totalHigh > rec.result.cost.totalLow);
+      log('顶部记录计数同步', /1 条记录/.test(d.querySelector('#topRecordCount').textContent), d.querySelector('#topRecordCount').textContent);
+
+      // 历史页回读
+      d.querySelector('[data-view="history"]').click();
+      log('历史列表回读到 1 条', d.querySelectorAll('#historyList .hcard').length === 1);
+      var search = d.querySelector('#historySearch');
+      search.value = '完全不存在的项目名';
+      search.dispatchEvent(new w.Event('input'));
+      log('搜索无结果空态', d.querySelectorAll('#historyList .hcard').length === 0);
+      search.value = '数据看板';
+      search.dispatchEvent(new w.Event('input'));
+      log('搜索命中恢复', d.querySelectorAll('#historyList .hcard').length === 1);
+
+      // 打开详情弹层
+      d.querySelector('[data-hact="view"]').click();
+      log('详情弹层渲染完整', !!d.querySelector('#modalResult .metric-grid'));
+      d.querySelector('#btnCloseModal').click();
+
+      // 费率设置页
+      d.querySelector('[data-view="config"]').click();
+      log('费率表单渲染', d.querySelectorAll('#cfgRoleRates input').length === 4);
+      log('阶段分配校验显示', /1/.test(d.querySelector('#allocCheck').textContent));
+      log('功能基准项渲染', d.querySelectorAll('#cfgBaseline input').length >= 10);
+
+      // 备份页
+      d.querySelector('[data-view="backup"]').click();
+      log('备份统计渲染', /1 条/.test(d.querySelector('#backupStats').textContent), d.querySelector('#backupStats').textContent.replace(/\s+/g, ' ').slice(0, 80));
+
+      // 载入重算
+      d.querySelector('[data-view="new"]').click();
+      d.querySelector('[data-act="reload"]').click();
+      log('载入重算回填表单', d.querySelector('#f-title').value === '企业数据看板项目' &&
+        d.querySelectorAll('.feature-row').length === 2);
+
+      // 清理测试数据，避免污染真实使用
+      w.localStorage.removeItem('est_platform_records_v1');
+      log('测试数据已清理', w.localStorage.getItem('est_platform_records_v1') === null);
+    } catch (e) {
+      log('执行过程异常', false, e.message);
+    }
+    finish();
+  });
+})();
+</script>
+</body>
+</html>
